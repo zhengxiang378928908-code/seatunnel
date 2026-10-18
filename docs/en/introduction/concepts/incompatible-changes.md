@@ -5,6 +5,17 @@ You need to check this document before you upgrade to related version.
 
 ## dev
 
+### Spark: DECIMAL with precision above 38
+
+- **Behavior change: on the Spark engine, `DECIMAL(p, s)` with `p > 38` no longer fails at schema creation when it is a top-level column or a field inside a `ROW`**
+  - **Description**: Spark's decimal type stops at precision 38, so any such column failed with `decimal can only support precision up to 38` before any row was read. SeaTunnel now carries these values through Spark as plain decimal text, with the declared precision and scale in the column metadata, and restores `DECIMAL(p, s)` for transforms and sinks.
+  - **Impact**:
+    - Jobs that read such columns on Spark 2.4 or 3.3 now run and keep every digit.
+    - A `DECIMAL(p > 38)` inside an `ARRAY` or `MAP` now fails at job start with error `SPARK-TRANSLATION-01`, which names the table, the column path and the workarounds. If the Doris source declares `LARGEINT` as `DECIMAL(39, 0)`, this applies to Doris `ARRAY<LARGEINT>` columns and `LARGEINT` map keys and values on Spark, which could overflow above 20 digits with the old `DECIMAL(20, 0)` type.
+    - A value that does not fit the declared precision or scale fails the job with `SPARK-TRANSLATION-02` instead of being rounded.
+    - In Spark's own view of the data, such as the Dataset schema or a temporary view, these columns are `STRING`.
+  - **Migration Guide**: No change is needed for top-level or `ROW` columns. For an `ARRAY` or `MAP` column, leave it out at the source, cast it in the source query, or run the job on the Zeta or Flink engine. A `Sql` transform cannot help here, because on Spark the source schema is built before any transform runs. See [SeaTunnel With Spark](../../engines/spark.md#decimal-precision-above-38).
+
 ### Doris source: LARGEINT is declared as DECIMAL(39, 0)
 
 - **Schema change: Doris `LARGEINT` columns are now declared as `DECIMAL(39, 0)` instead of `DECIMAL(20, 0)`**
