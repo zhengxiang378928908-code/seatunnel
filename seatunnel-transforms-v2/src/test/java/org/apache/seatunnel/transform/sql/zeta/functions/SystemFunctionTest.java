@@ -306,6 +306,44 @@ public class SystemFunctionTest {
     }
 
     @Test
+    public void testCastWithoutDroppingDigitsStillChecksPrecision() {
+        SeaTunnelRowType rowType =
+                new SeaTunnelRowType(
+                        new String[] {"value"}, new SeaTunnelDataType[] {BasicType.INT_TYPE});
+        Assertions.assertThrows(
+                Exception.class,
+                () -> runSql("SELECT CAST(value AS DECIMAL(2,1)) AS r FROM dual", rowType, 10));
+        Assertions.assertNull(
+                runSql("SELECT TRY_CAST(value AS DECIMAL(2,1)) AS r FROM dual", rowType, 10)
+                        .getField(0));
+    }
+
+    @Test
+    public void testCaseRoundsBranchValueWithExtraScaleHalfAwayFromZero() {
+        SeaTunnelRowType rowType =
+                new SeaTunnelRowType(
+                        new String[] {"a", "b"},
+                        new SeaTunnelDataType[] {new DecimalType(3, 2), new DecimalType(2, 1)});
+        String query = "SELECT CASE WHEN 1=1 THEN MOD(a, b) ELSE b END AS r FROM dual";
+        CatalogTable table = CatalogTableUtil.getCatalogTable("test", rowType);
+        SQLTransform transform =
+                new SQLTransform(
+                        ReadonlyConfig.fromMap(Collections.singletonMap("query", query)), table);
+        Assertions.assertEquals(
+                new DecimalType(2, 1),
+                transform.getProducedCatalogTable().getSeaTunnelRowType().getFieldType(0));
+        SeaTunnelRow result =
+                transform
+                        .transformRow(
+                                new SeaTunnelRow(
+                                        new Object[] {
+                                            new BigDecimal("1.21"), new BigDecimal("2.0")
+                                        }))
+                        .get(0);
+        Assertions.assertEquals(new BigDecimal("1.2"), result.getField(0));
+    }
+
+    @Test
     public void testCasePreservesDecimalIntegerAndFractionalDigits() {
         SeaTunnelRowType rowType =
                 new SeaTunnelRowType(
